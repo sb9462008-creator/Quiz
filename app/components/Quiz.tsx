@@ -53,7 +53,7 @@ export default function Quiz() {
 
   function checkForm(age: string, gender: string, usage: string) {
     const a = parseInt(age);
-    setFormValid(a >= 17 && a <= 21 && gender !== '' && usage !== '');
+    setFormValid(a >= 18 && a <= 21 && gender !== '' && usage !== '');
   }
 
   function updateField(field: 'age' | 'gender' | 'usage', val: string) {
@@ -198,7 +198,7 @@ export default function Quiz() {
             <div className="form-row">
               <div className="form-group">
                 <label>Нас *</label>
-                <input type="number" placeholder="жишээ: 18" min={17} max={21} value={userInfo.age}
+                <input type="number" placeholder="жишээ: 18" min={18} max={21} value={userInfo.age}
                   onChange={e => updateField('age', e.target.value)} />
               </div>
               <div className="form-group">
