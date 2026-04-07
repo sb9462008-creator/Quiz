@@ -441,7 +441,7 @@ export default function Quiz() {
                     <tr>
                       <th>#</th><th>Нас</th><th>Хүйс</th><th>Платформ</th>
                       <th>FOMO%</th><th>SMAS%</th><th>ACS%</th>
-                      <th>Нийт оноо</th><th>Түвшин</th><th>Огноо</th>
+                      <th>Нийт оноо</th><th>Түвшин</th><th>Огноо</th><th>Дэлгэрэнгүй</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -452,7 +452,7 @@ export default function Quiz() {
                         const dp = r.dimPcts || [0, 0, 0, 0];
                         const dt = new Date(r.date).toLocaleDateString('mn-MN');
                         return (
-                          <tr key={r.id} onClick={() => setModalEntry(r)}>
+                          <tr key={r.id}>
                             <td>{filtered.length - i}</td>
                             <td>{r.age}</td>
                             <td>{r.gender || '—'}</td>
@@ -463,6 +463,7 @@ export default function Quiz() {
                             <td style={{ color: 'var(--accent3)', fontWeight: 500 }}>{r.pct}%</td>
                             <td><span className={`level-badge ${badgeClass[r.levelClass] || ''}`}>{levelLabel[r.levelClass] || r.level}</span></td>
                             <td style={{ color: 'var(--muted)' }}>{dt}</td>
+                            <td><button className="filter-btn" style={{ padding: '4px 10px' }} onClick={() => setModalEntry(r)}>харах</button></td>
                           </tr>
                         );
                       })
@@ -497,6 +498,27 @@ export default function Quiz() {
                   </div>
                 );
               })}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>Бүх хариултууд</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {questions.map((q, i) => {
+                  const ans = modalEntry.answers[i];
+                  const opts = getOpts(q.scale);
+                  const rawVal = ans + 1;
+                  const score = q.reverse ? opts.length + 1 - rawVal : rawVal;
+                  return (
+                    <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', fontSize: 11 }}>
+                      <div style={{ color: 'var(--accent2)', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>{q.cat}</div>
+                      <div style={{ color: 'var(--text)', marginBottom: 4, lineHeight: 1.4 }}>{q.mn}</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ color: 'var(--muted)', fontSize: 10 }}>{ans >= 0 ? opts[ans] : '—'}</span>
+                        <span style={{ color: 'var(--accent3)', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>{score} оноо</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             {modalEntry.aiText && (
               <>
