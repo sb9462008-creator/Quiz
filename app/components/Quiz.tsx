@@ -5,6 +5,7 @@ import {
   questions, TOTAL_Q, dims, dimColors,
   getOpts, getScaleHint, calcScores,
   loadResults, saveResult,
+  saveResultRemote, loadResultsRemote,
   type ResultEntry, type LevelClass,
 } from './data';
 
@@ -129,6 +130,7 @@ export default function Quiz() {
       answers: [...answers],
     };
     saveResult(entry);
+    await saveResultRemote(entry);
     setResult(entry);
     setPage('result');
   }
@@ -153,9 +155,9 @@ export default function Quiz() {
   function adminLogin() {
     if (adminUser === ADMIN_USER && adminPass === ADMIN_PASS) {
       setLoginError(false);
-      setAllResults(loadResults());
       setActiveFilter('all');
       setPage('admin');
+      loadResultsRemote().then(setAllResults);
     } else {
       setLoginError(true);
     }

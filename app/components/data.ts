@@ -143,3 +143,44 @@ export function saveResult(entry: ResultEntry) {
   all.push(entry);
   localStorage.setItem(STORE_KEY, JSON.stringify(all));
 }
+
+// ── SUPABASE ──
+import { supabase } from './supabase';
+
+export async function saveResultRemote(entry: ResultEntry) {
+  await supabase.from('results').insert({
+    id: entry.id,
+    date: entry.date,
+    age: entry.age,
+    gender: entry.gender,
+    usage: entry.usage,
+    pct: entry.pct,
+    level: entry.level,
+    level_class: entry.levelClass,
+    dim_pcts: entry.dimPcts,
+    ai_text: entry.aiText,
+    answers: entry.answers,
+    total: entry.total,
+    max_score: entry.maxScore,
+  });
+}
+
+export async function loadResultsRemote(): Promise<ResultEntry[]> {
+  const { data } = await supabase.from('results').select('*').order('date', { ascending: false });
+  if (!data) return [];
+  return data.map(r => ({
+    id: r.id,
+    date: r.date,
+    age: r.age,
+    gender: r.gender,
+    usage: r.usage,
+    pct: r.pct,
+    level: r.level,
+    levelClass: r.level_class as LevelClass,
+    dimPcts: r.dim_pcts,
+    aiText: r.ai_text,
+    answers: r.answers,
+    total: r.total,
+    maxScore: r.max_score,
+  }));
+}
