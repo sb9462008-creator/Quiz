@@ -124,6 +124,7 @@ export function calcScores(answers: number[]): ScoreResult {
 export interface ResultEntry extends ScoreResult {
   id: number;
   date: string;
+  name: string;
   age: string;
   gender: string;
   usage: string;
@@ -147,8 +148,9 @@ export function saveResult(entry: ResultEntry) {
 // ── SUPABASE ──
 import { supabase } from './supabase';
 
-export async function saveResultRemote(entry: ResultEntry) {
-  await supabase.from('results').insert({
+function buildRemoteResultPayload(entry: ResultEntry, includeName = true) {
+  return {
+    ...(includeName ? { name: entry.name } : {}),
     id: entry.id,
     date: entry.date,
     age: entry.age,
@@ -162,15 +164,37 @@ export async function saveResultRemote(entry: ResultEntry) {
     answers: entry.answers,
     total: entry.total,
     max_score: entry.maxScore,
-  });
+  };
+}
+
+function isMissingNameColumnError(error: { code?: string; message?: string; details?: string; hint?: string } | null) {
+  if (!error) return false;
+  const text = [error.code, error.message, error.details, error.hint].filter(Boolean).join(' ');
+  return /PGRST204/i.test(text) || (/\bname\b/i.test(text) && /(schema cache|column|field)/i.test(text));
+}
+
+export async function saveResultRemote(entry: ResultEntry) {
+  if (!supabase) return;
+
+  const { error } = await supabase.from('results').insert(buildRemoteResultPayload(entry));
+  if (!error) return;
+  if (!isMissingNameColumnError(error)) throw error;
+
+  const fallback = await supabase.from('results').insert(buildRemoteResultPayload(entry, false));
+  if (fallback.error) throw fallback.error;
 }
 
 export async function loadResultsRemote(): Promise<ResultEntry[]> {
-  const { data } = await supabase.from('results').select('*').order('date', { ascending: false });
-  if (!data) return [];
-  return data.map(r => ({
+  const localResults = loadResults();
+  if (!supabase) return localResults;
+
+  const { data, error } = await supabase.from('results').select('*').order('date', { ascending: false });
+  if (error || !data) return localResults;
+
+  const remoteResults = data.map(r => ({
     id: r.id,
     date: r.date,
+    name: r.name || '',
     age: r.age,
     gender: r.gender,
     usage: r.usage,
@@ -183,4 +207,81 @@ export async function loadResultsRemote(): Promise<ResultEntry[]> {
     total: r.total,
     maxScore: r.max_score,
   }));
+
+  const merged = new Map<number, ResultEntry>();
+
+  remoteResults.forEach(entry => {
+    merged.set(entry.id, entry);
+  });
+
+  localResults.forEach(entry => {
+    const existing = merged.get(entry.id);
+    if (!existing) {
+      merged.set(entry.id, entry);
+      return;
+    }
+
+    merged.set(entry.id, {
+      ...existing,
+      name: existing.name || entry.name,
+      aiText: existing.aiText || entry.aiText,
+      answers: existing.answers?.length ? existing.answers : entry.answers,
+    });
+  });
+
+  return Array.from(merged.values()).sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+}
+
+export async function downloadResultsExcel(results: ResultEntry[], filename: string) {
+  if (typeof window === 'undefined' || results.length === 0) return;
+
+  const XLSX = await import('xlsx');
+  const rows = results.map((entry, index) => {
+    const dimPcts = entry.dimPcts || [0, 0, 0, 0];
+    return {
+      '#': index + 1,
+      'Нэр': entry.name || '',
+      'Нас': entry.age || '',
+      'Апп': entry.usage || '',
+      'Нийт оноо %': entry.pct,
+      'FOMO %': dimPcts[0] || 0,
+      'SMAS %': dimPcts[1] || 0,
+      'ACS %': dimPcts[3] || 0,
+      'Түвшин': entry.level,
+      'Огноо': new Date(entry.date).toLocaleString('mn-MN'),
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  worksheet['!cols'] = [
+    { wch: 5 },
+    { wch: 24 },
+    { wch: 8 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 24 },
+    { wch: 22 },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Quiz Results');
+
+  const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob(
+    [buffer],
+    { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+  link.click();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

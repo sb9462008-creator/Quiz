@@ -4,8 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   questions, TOTAL_Q, dims, dimColors,
   getOpts, getScaleHint, calcScores,
-  loadResults, saveResult,
-  saveResultRemote, loadResultsRemote,
+  saveResult, saveResultRemote, loadResultsRemote, downloadResultsExcel,
   type ResultEntry, type LevelClass,
 } from './data';
 
@@ -13,6 +12,7 @@ type Page = 'intro' | 'quiz' | 'loading' | 'result' | 'admin-login' | 'admin';
 
 const ADMIN_USER = 'admin';
 const ADMIN_PASS = 'smai2024';
+const RING_CIRCUMFERENCE = 2 * Math.PI * 52;
 
 const descs: Record<LevelClass, string> = {
   minimal:  'Нийгмийн сүлжээний хэрэглээ таны амьдралд тэнцвэртэй, эрүүл байдлаар оршиж байна.',
@@ -33,11 +33,15 @@ const recs: Record<LevelClass, string[]> = {
 const levelLabel: Record<LevelClass, string> = { minimal: 'Хэвийн', mild: 'Хөнгөн', moderate: 'Дунд зэрэг', high: 'Хүчтэй', severe: 'Хүнд' };
 const badgeClass: Record<LevelClass, string> = { minimal: 'badge-minimal', mild: 'badge-mild', moderate: 'badge-moderate', high: 'badge-high', severe: 'badge-severe' };
 
+function getSafeFilePart(value: string) {
+  return value.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '').replace(/\s+/g, '_');
+}
+
 export default function Quiz() {
   const [page, setPage] = useState<Page>('intro');
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState<number[]>(new Array(TOTAL_Q).fill(-1));
-  const [userInfo, setUserInfo] = useState({ age: '', gender: '', usage: '' });
+  const [userInfo, setUserInfo] = useState({ name: '', age: '', gender: '', usage: '' });
   const [formValid, setFormValid] = useState(false);
   const [result, setResult] = useState<ResultEntry | null>(null);
   const [adminUser, setAdminUser] = useState('');
@@ -49,17 +53,28 @@ export default function Quiz() {
   const [animKey, setAnimKey] = useState(0);
   const ringRef = useRef<SVGCircleElement>(null);
 
-  const circumference = 2 * Math.PI * 52;
-
-  function checkForm(age: string, gender: string, usage: string) {
-    const a = parseInt(age);
-    setFormValid(a >= 18 && a <= 21 && gender !== '' && usage !== '');
+  function checkForm(name: string, age: string, gender: string, usage: string) {
+    const a = parseInt(age, 10);
+    setFormValid(name.trim() !== '' && a >= 18 && a <= 21 && gender !== '' && usage !== '');
   }
 
-  function updateField(field: 'age' | 'gender' | 'usage', val: string) {
+  function updateField(field: 'name' | 'age' | 'gender' | 'usage', val: string) {
     const next = { ...userInfo, [field]: val };
     setUserInfo(next);
-    checkForm(next.age, next.gender, next.usage);
+    checkForm(next.name, next.age, next.gender, next.usage);
+  }
+
+  function buildExportFilename(prefix: string, name = '', date = new Date().toISOString()) {
+    const fileParts = [prefix, getSafeFilePart(name), date.slice(0, 10)].filter(Boolean);
+    return fileParts.join('_');
+  }
+
+  async function exportCurrentResult() {
+    if (!result) return;
+    await downloadResultsExcel(
+      [result],
+      buildExportFilename('SMAI_result', result.name, result.date)
+    );
   }
 
   function startQuiz() {
@@ -88,10 +103,11 @@ export default function Quiz() {
 
   async function analyzeWithAI() {
     setPage('loading');
+    const normalizedUserInfo = { ...userInfo, name: userInfo.name.trim() };
     const scores = calcScores(answers);
     const prompt = `Цахим сүлжээний хэрэглээний иж бүрэн тестийн үр дүнд дүн шинжилгээ хий.
 
-Хэрэглэгч: Нас ${userInfo.age}, ${userInfo.gender}, хамгийн их ашигладаг платформ: ${userInfo.usage}
+Хэрэглэгч: Нэр ${normalizedUserInfo.name}, Нас ${normalizedUserInfo.age}, ${normalizedUserInfo.gender}, хамгийн их ашигладаг платформ: ${normalizedUserInfo.usage}
 
 Нийт эрсдэлийн индекс: ${scores.pct}% — ${scores.level}
 
@@ -124,20 +140,24 @@ export default function Quiz() {
     const entry: ResultEntry = {
       id: Date.now(),
       date: new Date().toISOString(),
-      ...userInfo,
+      ...normalizedUserInfo,
       ...scores,
       aiText,
       answers: [...answers],
     };
     saveResult(entry);
-    await saveResultRemote(entry);
+    try {
+      await saveResultRemote(entry);
+    } catch (error) {
+      console.error('Failed to save result remotely', error);
+    }
     setResult(entry);
     setPage('result');
   }
 
   useEffect(() => {
     if (page === 'result' && result && ringRef.current) {
-      const offset = circumference - (result.pct / 100) * circumference;
+      const offset = RING_CIRCUMFERENCE - (result.pct / 100) * RING_CIRCUMFERENCE;
       setTimeout(() => {
         if (ringRef.current) ringRef.current.style.strokeDashoffset = String(offset);
       }, 200);
@@ -145,7 +165,7 @@ export default function Quiz() {
   }, [page, result]);
 
   function restartQuiz() {
-    setUserInfo({ age: '', gender: '', usage: '' });
+    setUserInfo({ name: '', age: '', gender: '', usage: '' });
     setFormValid(false);
     setAnswers(new Array(TOTAL_Q).fill(-1));
     setCurrent(0);
@@ -163,19 +183,9 @@ export default function Quiz() {
     }
   }
 
-  function exportCSV() {
+  async function exportExcel() {
     if (!allResults.length) { alert('Дата байхгүй байна'); return; }
-    const headers = ['#', 'Нас', 'Хүйс', 'Платформ', 'Нийт эрсдэл%', 'FOMO%', 'SMAS%', 'ACS%', 'Түвшин', 'Огноо'];
-    const rows = allResults.map((r, i) => {
-      const dp = r.dimPcts || [0, 0, 0, 0];
-      return [i + 1, r.age, r.gender, r.usage, r.pct, dp[0], dp[1], dp[3], r.level, new Date(r.date).toLocaleDateString('mn-MN')];
-    });
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `SMAI_data_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
+    await downloadResultsExcel(allResults, buildExportFilename('SMAI_data'));
   }
 
   const filtered = activeFilter === 'all' ? allResults : allResults.filter(r => r.levelClass === activeFilter);
@@ -195,6 +205,17 @@ export default function Quiz() {
           <p className="subtitle">FOMO, SMAS-2, Анхаарал хяналт зэрэг 3 хэмжигдэхүүнийг хамарсан иж бүрэн үнэлгээ · ~10 минут</p>
           <div className="user-form">
             <h3>Таны мэдээлэл</h3>
+            <div className="form-row">
+              <div className="form-group full">
+                <label>Нэр *</label>
+                <input
+                  type="text"
+                  placeholder="жишээ: Бат"
+                  value={userInfo.name}
+                  onChange={e => updateField('name', e.target.value)}
+                />
+              </div>
+            </div>
             <div className="form-row">
               <div className="form-group">
                 <label>Нас *</label>
@@ -292,7 +313,6 @@ export default function Quiz() {
       {/* RESULT */}
       {page === 'result' && result && (() => {
         const { pct, dimPcts, level, levelClass, aiText } = result;
-        const offset = circumference - (pct / 100) * circumference;
         return (
           <div id="result" className="page active">
             <div className="result-header">
@@ -301,8 +321,8 @@ export default function Quiz() {
                   <circle className="ring-bg" cx="65" cy="65" r="52" />
                   <circle ref={ringRef} className="ring-fill" cx="65" cy="65" r="52"
                     stroke="url(#rg)"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={circumference}
+                    strokeDasharray={RING_CIRCUMFERENCE}
+                    strokeDashoffset={RING_CIRCUMFERENCE}
                     style={{ transition: 'stroke-dashoffset 1.5s cubic-bezier(0.4,0,0.2,1)' }}
                   />
                   <defs>
@@ -369,7 +389,10 @@ export default function Quiz() {
               ))}
             </div>
 
-            <button className="restart-btn" onClick={restartQuiz}>↺ Дахин хийх</button>
+            <div className="result-actions">
+              <button className="excel-btn" onClick={exportCurrentResult}>Excel татах</button>
+              <button className="restart-btn" onClick={restartQuiz}>↺ Дахин хийх</button>
+            </div>
           </div>
         );
       })()}
@@ -413,7 +436,7 @@ export default function Quiz() {
             <div className="admin-header">
               <div className="admin-title">Админ <span>Хяналтын самбар</span></div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button className="admin-back" onClick={exportCSV}>↓ CSV татах</button>
+                <button className="admin-back" onClick={exportExcel}>↓ Excel татах</button>
                 <button className="admin-back" onClick={() => setPage('intro')}>← Гарах</button>
               </div>
             </div>
@@ -441,14 +464,14 @@ export default function Quiz() {
                 <table>
                   <thead>
                     <tr>
-                      <th>#</th><th>Нас</th><th>Хүйс</th><th>Платформ</th>
+                      <th>#</th><th>Нэр</th><th>Нас</th><th>Хүйс</th><th>Платформ</th>
                       <th>FOMO%</th><th>SMAS%</th><th>ACS%</th>
                       <th>Нийт оноо</th><th>Түвшин</th><th>Огноо</th><th>Дэлгэрэнгүй</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.length === 0 ? (
-                      <tr><td colSpan={10}><div className="empty-state">Үр дүн олдсонгүй</div></td></tr>
+                      <tr><td colSpan={12}><div className="empty-state">Үр дүн олдсонгүй</div></td></tr>
                     ) : (
                       [...filtered].reverse().map((r, i) => {
                         const dp = r.dimPcts || [0, 0, 0, 0];
@@ -456,6 +479,7 @@ export default function Quiz() {
                         return (
                           <tr key={r.id}>
                             <td>{filtered.length - i}</td>
+                            <td>{r.name || '—'}</td>
                             <td>{r.age}</td>
                             <td>{r.gender || '—'}</td>
                             <td>{r.usage || '—'}</td>
@@ -483,8 +507,8 @@ export default function Quiz() {
         <div className="modal-overlay open" onClick={e => { if (e.target === e.currentTarget) setModalEntry(null); }}>
           <div className="modal">
             <button className="modal-close" onClick={() => setModalEntry(null)}>✕</button>
-            <div className="modal-name">{modalEntry.age} нас · {modalEntry.gender} · {modalEntry.usage}</div>
-            <div className="modal-meta">{new Date(modalEntry.date).toLocaleString('mn-MN')}</div>
+            <div className="modal-name">{modalEntry.name || 'Нэргүй хэрэглэгч'}</div>
+            <div className="modal-meta">{modalEntry.age} нас · {modalEntry.gender || '—'} · {modalEntry.usage || '—'} · {new Date(modalEntry.date).toLocaleString('mn-MN')}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 32, fontWeight: 800, color: 'var(--accent3)' }}>{modalEntry.pct}%</span>
               <span className={`level-badge ${badgeClass[modalEntry.levelClass] || ''}`} style={{ fontSize: 12, padding: '5px 12px' }}>{modalEntry.level}</span>
