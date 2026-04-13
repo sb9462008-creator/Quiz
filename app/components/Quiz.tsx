@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   questions, TOTAL_Q, dims, dimColors,
-  getOpts, getScaleHint, calcScores,
+  getOpts, getScaleHint, calcScores, getQuestionScore,
   saveResult, saveResultRemote, loadResultsRemote, downloadResultsExcel,
   type ResultEntry, type LevelClass,
 } from './data';
@@ -531,15 +531,14 @@ export default function Quiz() {
                 {questions.map((q, i) => {
                   const ans = modalEntry.answers[i];
                   const opts = getOpts(q.scale);
-                  const rawVal = ans + 1;
-                  const score = q.reverse ? opts.length + 1 - rawVal : rawVal;
+                  const score = getQuestionScore(i, ans);
                   return (
                     <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 12px', fontSize: 11 }}>
                       <div style={{ color: 'var(--accent2)', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>{q.cat}</div>
                       <div style={{ color: 'var(--text)', marginBottom: 4, lineHeight: 1.4 }}>{q.mn}</div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: 'var(--muted)', fontSize: 10 }}>{ans >= 0 ? opts[ans] : '—'}</span>
-                        <span style={{ color: 'var(--accent3)', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>{score} оноо</span>
+                        <span style={{ color: 'var(--accent3)', fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>{score ?? '—'} оноо</span>
                       </div>
                     </div>
                   );

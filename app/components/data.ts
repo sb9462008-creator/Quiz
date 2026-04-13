@@ -77,6 +77,18 @@ export function getScaleHint(scale: Scale): [string, string] | null {
   }
 }
 
+export function getQuestionScore(questionIndex: number, answerIndex: number): number | null {
+  if (answerIndex < 0) return null;
+
+  const question = questions[questionIndex];
+  if (!question) return null;
+
+  const optionCount = getOpts(question.scale).length;
+  const rawValue = answerIndex + 1;
+
+  return question.reverse ? optionCount + 1 - rawValue : rawValue;
+}
+
 export type LevelClass = 'minimal' | 'mild' | 'moderate' | 'high' | 'severe';
 
 export interface ScoreResult {
@@ -240,6 +252,13 @@ export async function downloadResultsExcel(results: ResultEntry[], filename: str
   const XLSX = await import('xlsx');
   const rows = results.map((entry, index) => {
     const dimPcts = entry.dimPcts || [0, 0, 0, 0];
+    const questionScoreColumns = Object.fromEntries(
+      questions.map((question, questionIndex) => [
+        `Q${questionIndex + 1} оноо`,
+        getQuestionScore(questionIndex, entry.answers?.[questionIndex] ?? -1) ?? '',
+      ])
+    );
+
     return {
       '#': index + 1,
       'Нэр': entry.name || '',
@@ -251,11 +270,19 @@ export async function downloadResultsExcel(results: ResultEntry[], filename: str
       'ACS %': dimPcts[3] || 0,
       'Түвшин': entry.level,
       'Огноо': new Date(entry.date).toLocaleString('mn-MN'),
+      ...questionScoreColumns,
     };
   });
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  worksheet['!cols'] = [
+  const questionReferenceRows = questions.map((question, index) => ({
+    'Багана': `Q${index + 1} оноо`,
+    'Ангилал': question.cat,
+    'Асуулт': question.mn,
+    'Урвуу оноо': question.reverse ? 'Тийм' : 'Үгүй',
+  }));
+
+  const resultsWorksheet = XLSX.utils.json_to_sheet(rows);
+  resultsWorksheet['!cols'] = [
     { wch: 5 },
     { wch: 24 },
     { wch: 8 },
@@ -266,10 +293,20 @@ export async function downloadResultsExcel(results: ResultEntry[], filename: str
     { wch: 12 },
     { wch: 24 },
     { wch: 22 },
+    ...questions.map(() => ({ wch: 10 })),
+  ];
+
+  const questionsWorksheet = XLSX.utils.json_to_sheet(questionReferenceRows);
+  questionsWorksheet['!cols'] = [
+    { wch: 12 },
+    { wch: 24 },
+    { wch: 90 },
+    { wch: 12 },
   ];
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Quiz Results');
+  XLSX.utils.book_append_sheet(workbook, resultsWorksheet, 'Quiz Results');
+  XLSX.utils.book_append_sheet(workbook, questionsWorksheet, 'Question Reference');
 
   const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob(
