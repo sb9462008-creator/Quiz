@@ -261,7 +261,6 @@ export async function downloadResultsExcel(results: ResultEntry[], filename: str
 
     return {
       '#': index + 1,
-      'Нэр': entry.name || '',
       'Нас': entry.age || '',
       'Хүйс': entry.gender || '',
       'Апп': entry.usage || '',
@@ -285,7 +284,6 @@ export async function downloadResultsExcel(results: ResultEntry[], filename: str
   const resultsWorksheet = XLSX.utils.json_to_sheet(rows);
   resultsWorksheet['!cols'] = [
     { wch: 5 },
-    { wch: 24 },
     { wch: 8 },
     { wch: 12 },
     { wch: 18 },
